@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Sign Language Client</title>
+    <style>
+        body { text-align: center; font-family: sans-serif; background: #ffffff; color: black; }
+        video { border: 2px solid #555; width: 640px; height: 480px; background: black; transform: scaleX(-1); }
+        #result { font-size: 40px; font-weight: bold; color: #00ff00; margin-top: 20px; }
+        #status { color: gray; font-size: 12px; margin-top: 5px; }
+    </style>
+</head>
+<body>
+
+    <h1>Live Sign Language Detector</h1>
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvas" width="640" height="480" style="display:none;"></canvas>
+    
+    <div id="result">Waiting for hands...</div>
+    <div id="status">Status: Connecting...</div>
+
+<script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const resultDiv = document.getElementById('result');
+    const statusDiv = document.getElementById('status');
+
+    // 1. Initialize WebSocket
+    const socket = new WebSocket('ws://127.0.0.1:8000/ws/predict');
+
+    // 2. WebSocket Event Listeners
+    socket.onopen = function(e) {
+        statusDiv.innerText = "Status: Connected to Server";
+        console.log("WebSocket connection established");
+    };
+
+    socket.onmessage = function(event) {
+        // The server sends back JSON: {"label": "A", "confidence": 0.9}
+        const data = JSON.parse(event.data);
+        
+        if (data.confidence > 0.7) {
+            resultDiv.innerText = `${data.label} (${(data.confidence * 100).toFixed(0)}%)`;
+            resultDiv.style.color = "#00ff00"; // Green
+        } else {
+            resultDiv.innerText = "Unsure";
+            resultDiv.style.color = "yellow";
+        }
+    };
+
+    socket.onclose = function(event) {
+        if (event.wasClean) {
+            statusDiv.innerText = `Status: Connection closed cleanly`;
+        } else {
+            statusDiv.innerText = 'Status: Connection died (Check Server Log)';
+        }
+    };
+
+    socket.onerror = function(error) {
+        statusDiv.innerText = `Status: Error (Is server.py running?)`;
+    };
+
+    // 3. Camera Setup
+    navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 } })
+        .then(stream => {
+            video.srcObject = stream;
+            
+            // Start sending frames only after camera is ready
+            setInterval(sendFrame, 100); // Send every 100ms (10 FPS)
+        })
+        .catch(err => {
+            console.error("Camera Error:", err);
+            statusDiv.innerText = "Error: Camera access denied";
+        });
+
+    // 4. The Loop: Capture & Send
+    function sendFrame() {
+        // Only send if connection is OPEN
+        if (socket.readyState === WebSocket.OPEN) {
+            // Draw video frame to hidden canvas
+            ctx.scale(-1, 1); // Mirror for natural interaction
+            ctx.drawImage(video, 0, 0, -canvas.width, canvas.height);
+            
+            // Convert to Base64 JPEG (Low quality for speed)
+            // '0.5' quality is plenty for MediaPipe
+            const imageData = canvas.toDataURL('image/jpeg', 0.5); 
+            
+            // Send directly through the pipe
+            socket.send(imageData);
+        }
+    }
+</script>
+
+</body>
+</html>
