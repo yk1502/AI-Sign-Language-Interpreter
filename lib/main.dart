@@ -152,19 +152,6 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
                       scale: 1.0 + (_mainController.value * 0.4),
                       child: _glowCircle(600, const Color.fromARGB(255, 102, 190, 193), 0.6),
                     ),
-                    
-                    Positioned(
-                      top: 130, // Adjust this value to move it higher or lower within the circle
-                      right: 220,
-                      child: Opacity(
-                        opacity: 0.35 + (_random.nextDouble() * 0.65),
-                        child: SvgPicture.asset(
-                          'assets/welcome_bg.svg',
-                          width: 120,
-                          fit: BoxFit.contain,
-                        ),
-                      ),
-                    ),
                   ],
                 );
               },
@@ -178,9 +165,36 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildVibratingShimmer("AI", 100, FontWeight.w900, [Colors.white, const Color(0xFF52A1B3), const Color(0xFF085065)], 0.9),
+                
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    _buildVibratingShimmer("AI", 100, FontWeight.w900, [Colors.white, const Color(0xFF52A1B3), const Color(0xFF085065)], 0.9),
+                    
+                    // The SVG positioned relative to the "AI" text
+                    Positioned(
+                      top: -10,  // Adjust to move higher/lower relative to 'AI'
+                      left: 103, // Adjust to move further right from 'AI'
+                      child: AnimatedBuilder(
+                        animation: _flickerController,
+                        builder: (context, child) {
+                          return Opacity(
+                            opacity: 0.35 + (_random.nextDouble() * 0.65),
+                            child: SvgPicture.asset(
+                              'assets/welcome_bg.svg',
+                              width: 120, // Scaled down to fit beside text
+                              fit: BoxFit.contain,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+
                 _buildVibratingShimmer("Sign Language", 40, FontWeight.w700, [const Color(0xFF5299B7), const Color(0xFF1B4043), const Color(0xFF0D6E89)], 1.35),
                 _buildVibratingShimmer("Interpreter", 40, FontWeight.w700, [const Color(0xFF5299B7), const Color(0xFF1B4043), const Color(0xFF52A1B7)], 1.35),
+                
                 Padding(
                   padding: const EdgeInsets.only(left: 4, top: 35),
                   child: Text(
