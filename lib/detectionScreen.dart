@@ -69,9 +69,9 @@ class _DetectionScreenState extends State<DetectionScreen> {
 
     _controller = CameraController(
       cameras[0],
-      ResolutionPreset.high,
+      ResolutionPreset.low,
       enableAudio: false,
-      imageFormatGroup: ImageFormatGroup.jpeg,
+      imageFormatGroup: ImageFormatGroup.yuv420,
     );
 
     try {
@@ -238,8 +238,7 @@ class _DetectionScreenState extends State<DetectionScreen> {
       }
     }
 
-    // Rotate -90 degrees because most front cameras are rotated sideways
-    img.Image rotated = img.copyRotate(imgBuffer, angle: -90);
+    img.Image rotated = img.copyRotate(imgBuffer, angle: 90);
 
     // Return JPEG bytes
     return img.encodeJpg(rotated, quality: 50);
