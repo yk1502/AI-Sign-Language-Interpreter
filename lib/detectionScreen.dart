@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:web_socket_channel/io.dart';
-import 'package:image/image.dart' as img; // Need this for JPEG conversion
-import 'main.dart'; // To access your global 'cameras' list
+import 'package:image/image.dart' as img;
+import 'main.dart';
 
 class DetectionScreen extends StatefulWidget {
   const DetectionScreen({super.key});
@@ -25,7 +25,7 @@ class _DetectionScreenState extends State<DetectionScreen> {
   String _currentLabel = "Waiting for hands...";
   double _currentConfidence = 0.0;
 
-  // REPLACE WITH YOUR NGROK/SERVER URL
+  // REPLACE WITH NGROK/SERVER URL
   final String _socketUrl = 'wss://semisweet-lynell-unharried.ngrok-free.dev/ws/predict';
 
   final LinearGradient _uiGradient = const LinearGradient(
@@ -51,7 +51,7 @@ class _DetectionScreenState extends State<DetectionScreen> {
           setState(() {
             _currentLabel = "${data['label']} (${(data['confidence'] * 100).toStringAsFixed(0)}%)";
             _currentConfidence = data['confidence'];
-            _isProcessing = false; // Unlock: Ready for next frame
+            _isProcessing = false; // Unlock: Ready to send next frame
           });
         }
       }, onError: (error) {
@@ -68,7 +68,7 @@ class _DetectionScreenState extends State<DetectionScreen> {
     if (cameras.isEmpty) return;
 
     _controller = CameraController(
-      cameras[0],
+      cameras[0], // Back camera
       ResolutionPreset.low,
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.yuv420,
@@ -77,9 +77,8 @@ class _DetectionScreenState extends State<DetectionScreen> {
     try {
       await _controller!.initialize();
       if (!mounted) return;
-      setState(() {}); // Refresh UI to show preview
+      setState(() {});
 
-      // Start the Background Stream
       _controller!.startImageStream((CameraImage image) {
         _processCameraImage(image);
       });
@@ -89,9 +88,9 @@ class _DetectionScreenState extends State<DetectionScreen> {
     }
   }
 
-  // 3. THE LOGIC LOOP (Throttled)
+  // 3. LOOP TO SEND IMAGE FRAME
   void _processCameraImage(CameraImage image) async {
-    // A. THROTTLING: Skip frames to save CPU (Limit to ~6 FPS)
+    // A. Skip some frames to save CPU resource (Limit to ~6 FPS)
     if (_isProcessing || DateTime.now().difference(_lastProcessedTime).inMilliseconds < 150) {
       return;
     }
@@ -101,7 +100,6 @@ class _DetectionScreenState extends State<DetectionScreen> {
 
     try {
       // B. CONVERT & SEND
-      // This helper function handles the heavy YUV -> JPEG math
       List<int> jpegBytes = await convertYUV420toImageColor(image);
       String base64Image = base64Encode(jpegBytes);
       _channel?.sink.add(base64Image);
@@ -211,8 +209,7 @@ class _DetectionScreenState extends State<DetectionScreen> {
     );
   }
 
-  // Convert Raw Camera Data to JPEG ---
-  // This is required because Android cameras don't give JPEGs directly in the stream
+  // Convert Raw Camera Data to JPEG
   Future<List<int>> convertYUV420toImageColor(CameraImage image) async {
     final int width = image.width;
     final int height = image.height;
@@ -238,9 +235,9 @@ class _DetectionScreenState extends State<DetectionScreen> {
       }
     }
 
+    // Back camera portrait position
     img.Image rotated = img.copyRotate(imgBuffer, angle: 90);
 
-    // Return JPEG bytes
     return img.encodeJpg(rotated, quality: 50);
   }
 }
