@@ -1,7 +1,12 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'main.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:web_socket_channel/io.dart';
+import 'package:image/image.dart' as img; // Need this for JPEG conversion
+import 'main.dart'; // To access your global 'cameras' list
 
 class DetectionScreen extends StatefulWidget {
   const DetectionScreen({super.key});
@@ -12,7 +17,16 @@ class DetectionScreen extends StatefulWidget {
 
 class _DetectionScreenState extends State<DetectionScreen> {
   CameraController? _controller;
-  Future<void>? _initializeControllerFuture;
+  IOWebSocketChannel? _channel;
+
+  // LOGIC STATE
+  bool _isProcessing = false;
+  DateTime _lastProcessedTime = DateTime.now();
+  String _currentLabel = "Waiting for hands...";
+  double _currentConfidence = 0.0;
+
+  // REPLACE WITH YOUR NGROK/SERVER URL
+  final String _socketUrl = 'wss://semisweet-lynell-unharried.ngrok-free.dev/ws/predict';
 
   final LinearGradient _uiGradient = const LinearGradient(
     begin: Alignment.topLeft,
@@ -23,27 +37,85 @@ class _DetectionScreenState extends State<DetectionScreen> {
   @override
   void initState() {
     super.initState();
+    _initWebSocket();
     _initCamera();
   }
 
-  void _initCamera() {
-    if (cameras.isNotEmpty) {
-      _controller = CameraController(
-        cameras[0],
-        ResolutionPreset.high,
-        enableAudio: false,
-        imageFormatGroup: ImageFormatGroup.jpeg,
-      );
-      _initializeControllerFuture = _controller!.initialize();
-      _controller!.addListener(() {
-        if (mounted) setState(() {});
+  // 1. CONNECT TO SERVER
+  void _initWebSocket() {
+    try {
+      _channel = IOWebSocketChannel.connect(_socketUrl);
+      _channel!.stream.listen((message) {
+        final data = jsonDecode(message);
+        if (mounted) {
+          setState(() {
+            _currentLabel = "${data['label']} (${(data['confidence'] * 100).toStringAsFixed(0)}%)";
+            _currentConfidence = data['confidence'];
+            _isProcessing = false; // Unlock: Ready for next frame
+          });
+        }
+      }, onError: (error) {
+        print("WS Error: $error");
+        _isProcessing = false;
       });
+    } catch (e) {
+      print("Connection Error: $e");
+    }
+  }
+
+  // 2. START CAMERA & STREAM
+  void _initCamera() async {
+    if (cameras.isEmpty) return;
+
+    _controller = CameraController(
+      cameras[0],
+      ResolutionPreset.high,
+      enableAudio: false,
+      imageFormatGroup: ImageFormatGroup.jpeg,
+    );
+
+    try {
+      await _controller!.initialize();
+      if (!mounted) return;
+      setState(() {}); // Refresh UI to show preview
+
+      // Start the Background Stream
+      _controller!.startImageStream((CameraImage image) {
+        _processCameraImage(image);
+      });
+
+    } catch (e) {
+      print("Camera Error: $e");
+    }
+  }
+
+  // 3. THE LOGIC LOOP (Throttled)
+  void _processCameraImage(CameraImage image) async {
+    // A. THROTTLING: Skip frames to save CPU (Limit to ~6 FPS)
+    if (_isProcessing || DateTime.now().difference(_lastProcessedTime).inMilliseconds < 150) {
+      return;
+    }
+
+    _isProcessing = true;
+    _lastProcessedTime = DateTime.now();
+
+    try {
+      // B. CONVERT & SEND
+      // This helper function handles the heavy YUV -> JPEG math
+      List<int> jpegBytes = await convertYUV420toImageColor(image);
+      String base64Image = base64Encode(jpegBytes);
+      _channel?.sink.add(base64Image);
+
+    } catch (e) {
+      print("Processing Error: $e");
+      _isProcessing = false;
     }
   }
 
   @override
   void dispose() {
     _controller?.dispose();
+    _channel?.sink.close();
     super.dispose();
   }
 
@@ -104,20 +176,12 @@ class _DetectionScreenState extends State<DetectionScreen> {
                 ],
               ),
               clipBehavior: Clip.antiAlias,
-              child: FutureBuilder<void>(
-                future: _initializeControllerFuture,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.done && _controller != null) {
-                    return AspectRatio(
-                      aspectRatio: isPortrait 
-                        ? 1 / _controller!.value.aspectRatio 
-                        : _controller!.value.aspectRatio,
-                      child: CameraPreview(_controller!),
-                    );
-                  }
-                  return const Center(child: CircularProgressIndicator());
-                },
-              ),
+              child: _controller != null && _controller!.value.isInitialized
+                  ? AspectRatio(
+                aspectRatio: isPortrait ? 1 / _controller!.value.aspectRatio : _controller!.value.aspectRatio,
+                child: CameraPreview(_controller!),
+              )
+                  : const Center(child: CircularProgressIndicator()),
             ),
           ),
           Expanded(
@@ -128,11 +192,12 @@ class _DetectionScreenState extends State<DetectionScreen> {
                 child: ShaderMask(
                   blendMode: BlendMode.srcIn,
                   shaderCallback: (bounds) => _uiGradient.createShader(bounds),
-                  child: const Text(
-                    "Hello, how can I help you?",
+                  child: Text(
+                    // DYNAMIC TEXT UPDATE
+                    _currentLabel,
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 22,
+                    style: const TextStyle(
+                      fontSize: 32, // Made slightly bigger for readability
                       fontWeight: FontWeight.w700,
                       height: 1.2,
                     ),
@@ -144,5 +209,39 @@ class _DetectionScreenState extends State<DetectionScreen> {
         ],
       ),
     );
+  }
+
+  // Convert Raw Camera Data to JPEG ---
+  // This is required because Android cameras don't give JPEGs directly in the stream
+  Future<List<int>> convertYUV420toImageColor(CameraImage image) async {
+    final int width = image.width;
+    final int height = image.height;
+    final int uvRowStride = image.planes[1].bytesPerRow;
+    final int? uvPixelStride = image.planes[1].bytesPerPixel;
+
+    var imgBuffer = img.Image(width: width, height: height);
+
+    for (int x = 0; x < width; x++) {
+      for (int y = 0; y < height; y++) {
+        final int uvIndex = (uvPixelStride! * (x / 2).floor()) + (uvRowStride * (y / 2).floor());
+        final int index = y * width + x;
+
+        final yp = image.planes[0].bytes[index];
+        final up = image.planes[1].bytes[uvIndex];
+        final vp = image.planes[2].bytes[uvIndex];
+
+        int r = (yp + vp * 1436 / 1024 - 179).round().clamp(0, 255);
+        int g = (yp - up * 46549 / 131072 + 44 - vp * 93604 / 131072 + 91).round().clamp(0, 255);
+        int b = (yp + up * 1814 / 1024 - 227).round().clamp(0, 255);
+
+        imgBuffer.setPixelRgb(x, y, r, g, b);
+      }
+    }
+
+    // Rotate -90 degrees because most front cameras are rotated sideways
+    img.Image rotated = img.copyRotate(imgBuffer, angle: -90);
+
+    // Return JPEG bytes
+    return img.encodeJpg(rotated, quality: 50);
   }
 }
