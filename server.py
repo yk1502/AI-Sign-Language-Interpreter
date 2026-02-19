@@ -23,12 +23,8 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             data = await websocket.receive_text()
             
-            result = {"label": "No Hands", "confidence": 0.0}
-
-            if ',' in data:
-                data = data.split(',')[1]
-                label, confidence, _ = model.forward(data)
-                result = {"label": label, "confidence": float(confidence)}
+            label, confidence, _ = model.forward(data)
+            result = {"label": label, "confidence": float(confidence)}
             
             await websocket.send_json(result)
 
