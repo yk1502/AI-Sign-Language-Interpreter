@@ -25,7 +25,7 @@ class _DetectionScreenState extends State<DetectionScreen> {
   double _currentConfidence = 0.0;
 
   // REPLACE WITH NGROK/SERVER URL
-  final String _socketUrl = 'wss://semisweet-lynell-unharried.ngrok-free.dev/ws/predict';
+  final String _socketUrl = 'ws://localIP:8000/ws/predict';
 
   final LinearGradient _uiGradient = const LinearGradient(
     begin: Alignment.topLeft,
