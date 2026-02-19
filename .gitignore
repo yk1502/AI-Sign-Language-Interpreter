@@ -1,3 +1,4 @@
 sign_data_multi.csv
 sign_language_model.keras
 venv/
+__pycache__/
