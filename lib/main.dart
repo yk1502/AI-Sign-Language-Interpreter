@@ -1,25 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart'; // Required for SemanticsService
+import 'package:flutter/services.dart';  // Required for HapticFeedback
 import 'detectionScreen.dart';
 import 'dart:math' as math;
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:camera/camera.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 
 List<CameraDescription> cameras = [];
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // 2. Populate the global list
-  try {
-    cameras = await availableCameras();
-  } catch (e) {
-    print("Error fetching cameras: $e");
-  }
-
+  cameras = await availableCameras();
   runApp(const MyApp());
 }
+
+
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -48,6 +46,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
   late AnimationController _shimmerController;
   late AnimationController _flickerController;
   final math.Random _random = math.Random();
+  
+  // NEW: Added TTS engine
+  final FlutterTts _flutterTts = FlutterTts();
 
   @override
   void initState() {
@@ -57,6 +58,19 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
     _vibrationController = AnimationController(vsync: this, duration: const Duration(milliseconds: 10000))..repeat(reverse: true);
     _shimmerController = AnimationController(vsync: this, duration: const Duration(seconds: 10))..repeat();
     _flickerController = AnimationController(vsync: this, duration: const Duration(milliseconds: 100))..repeat(reverse: true);
+
+    _initBlindModeVoice();
+  }
+
+  // NEW: This ensures the app actually speaks out loud on entry
+  Future<void> _initBlindModeVoice() async {
+    await _flutterTts.setLanguage("en-US");
+    await _flutterTts.setSpeechRate(0.5);
+    
+    // Announce instruction audibly
+    Future.delayed(const Duration(milliseconds: 800), () {
+      _flutterTts.speak("Welcome. For blind mode, tap the left side of the screen.");
+    });
   }
 
   @override
@@ -65,7 +79,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
     _floatController.dispose();
     _vibrationController.dispose();
     _shimmerController.dispose();
-    _flickerController.dispose(); // Dispose the new controller
+    _flickerController.dispose();
+    _flutterTts.stop(); // Stop speaking if user leaves
     super.dispose();
   }
 
@@ -110,7 +125,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
     );
   }
 
-@override
+  
+  @override
   Widget build(BuildContext context) {
     final Size screen = MediaQuery.of(context).size;
     return Scaffold(
@@ -118,10 +134,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
       body: Stack(
         alignment: Alignment.center,
         children: [
-          // 1. BACKGROUND PATTERN
           Positioned.fill(child: CustomPaint(painter: BackgroundPatternPainter())),
 
-          // 2. THE FLOATING BACKGROUND CIRCLES
+          // Background floating circles
           AnimatedBuilder(
             animation: Listenable.merge([_mainController, _floatController]),
             builder: (context, child) {
@@ -140,50 +155,42 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
             },
           ),
 
-          // 3. CENTRAL HUB: Pulsing Circle + Flickering Neon SVG (Behind Text)
+          // Central Glow
           Center(
             child: AnimatedBuilder(
               animation: Listenable.merge([_mainController, _flickerController]),
               builder: (context, child) {
-                return Stack(
-                  alignment: Alignment.center, // Keeps the circle centered
-                  children: [
-                    // The Glowing Pulse Circle (Stays centered)
-                    Transform.scale(
-                      scale: 1.0 + (_mainController.value * 0.4),
-                      child: _glowCircle(600, const Color.fromARGB(255, 102, 190, 193), 0.6),
-                    ),
-                  ],
+                return Transform.scale(
+                  scale: 1.0 + (_mainController.value * 0.4),
+                  child: _glowCircle(600, const Color.fromARGB(255, 102, 190, 193), 0.6),
                 );
               },
             ),
           ),
 
-        Align(
-          alignment: Alignment.topRight, // Change to Alignment.bottomRight if preferred
-          child: Padding(
-            padding: const EdgeInsets.only(top: 65, right: 20), // Adjusts distance from edges
-            child: _buildProfessionalUploadButton(context),
+          // Upload Button (Top Right)
+          Align(
+            alignment: Alignment.topRight,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 65, right: 20),
+              child: _buildProfessionalUploadButton(context),
+            ),
           ),
-        ),
 
-     
+          // Main Text Content
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 45),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                
                 Stack(
                   clipBehavior: Clip.none,
                   children: [
                     _buildVibratingShimmer("AI", 100, FontWeight.w900, [Colors.white, const Color(0xFF52A1B3), const Color(0xFF085065)], 0.9),
-                    
-                    // The SVG positioned relative to the "AI" text
                     Positioned(
-                      top: -10,  // Adjust to move higher/lower relative to 'AI'
-                      left: 103, // Adjust to move further right from 'AI'
+                      top: -10,
+                      left: 103,
                       child: AnimatedBuilder(
                         animation: _flickerController,
                         builder: (context, child) {
@@ -191,7 +198,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
                             opacity: 0.35 + (_random.nextDouble() * 0.65),
                             child: SvgPicture.asset(
                               'assets/welcome_bg.svg',
-                              width: 120, // Scaled down to fit beside text
+                              width: 120,
                               fit: BoxFit.contain,
                             ),
                           );
@@ -200,18 +207,16 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
                     ),
                   ],
                 ),
-
                 _buildVibratingShimmer("Sign Language", 40, FontWeight.w700, [const Color(0xFF5299B7), const Color(0xFF1B4043), const Color(0xFF0D6E89)], 1.35),
                 _buildVibratingShimmer("Interpreter", 40, FontWeight.w700, [const Color(0xFF5299B7), const Color(0xFF1B4043), const Color(0xFF52A1B7)], 1.35),
-                
                 Padding(
                   padding: const EdgeInsets.only(left: 4, top: 35),
                   child: Text(
                     "real-time sign language recognition",
                     style: GoogleFonts.handlee(
-                      color: const Color.fromARGB(255, 6, 78, 98), 
-                      fontSize: 20, 
-                      fontStyle: FontStyle.italic, 
+                      color: const Color.fromARGB(255, 6, 78, 98),
+                      fontSize: 20,
+                      fontStyle: FontStyle.italic,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -221,6 +226,29 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
               ],
             ),
           ),
+
+          // --- FIXED BLIND MODE TRIGGER ---
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FractionallySizedBox(
+              widthFactor: 0.3,
+              heightFactor: 1.0,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque, // FIX: Ensures the empty space is clickable
+                onTap: () {
+                  HapticFeedback.heavyImpact(); 
+                  _flutterTts.speak("Blind mode starting."); // Confirmation voice
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => DetectionScreen(isBlindMode: true,availableCameras: cameras),
+                    ),
+                  );
+                },
+                child: const SizedBox.expand(), // Fills the left half of the screen
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -228,17 +256,17 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
 
   Widget _buildSlim3DButton(BuildContext context, Color color, Color shadowColor) {
     return GestureDetector(
-      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => DetectionScreen()),),
+      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => DetectionScreen(availableCameras: cameras))),
       child: AnimatedBuilder(
         animation: _shimmerController,
         builder: (context, child) {
           return Container(
-            width: 190, 
-            height: 52, 
+            width: 190,
+            height: 52,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
               boxShadow: [
-                BoxShadow(color: shadowColor.withOpacity(0.4), offset: const Offset(0, 6)), 
+                BoxShadow(color: shadowColor.withOpacity(0.4), offset: const Offset(0, 6)),
                 BoxShadow(color: color.withOpacity(0.2), offset: const Offset(0, 10), blurRadius: 15),
               ],
               gradient: LinearGradient(
@@ -281,10 +309,10 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        backgroundBlendMode: BlendMode.multiply, 
+        backgroundBlendMode: BlendMode.multiply,
         gradient: RadialGradient(
           colors: [color.withOpacity(opacity), color.withOpacity(opacity * 0.5), color.withOpacity(0)],
-          stops: const [0.0, 0.4, 1.0], 
+          stops: const [0.0, 0.4, 1.0],
         ),
       ),
     );
@@ -298,7 +326,6 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
     );
   }
 }
-
 Widget _buildProfessionalUploadButton(BuildContext context) {
   const Color color1 = Color(0xFF52B0B7);
   const Color color2 = Color.fromARGB(255, 43, 120, 135);
@@ -511,8 +538,18 @@ class _DataCollectionFlowState extends State<DataCollectionFlow> with TickerProv
                       _styledTextField("Contributor Name", Icons.person_outline, _nameController),
                       const SizedBox(height: 25),
                       _uploadTile("Related Certificate", _certName, Icons.badge_outlined, () async {
-                        // ... file picker logic ...
-                      }),
+                        FilePickerResult? result = await FilePicker.platform.pickFiles(
+                          type: FileType.custom,
+                          allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
+                        );
+
+                        if (result != null) {
+                          setState(() {
+                            _certName = result.files.single.name;
+                          });
+                          // You can access the path via result.files.single.path
+                        }
+                                            }),
                     ],
                   ),
                   
@@ -557,7 +594,15 @@ class _DataCollectionFlowState extends State<DataCollectionFlow> with TickerProv
                   Column(
                     children: [
                       _uploadTile("Sign Language Video", _videoName, Icons.videocam_outlined, () async {
-                        // ... FilePicker logic ...
+                        FilePickerResult? result = await FilePicker.platform.pickFiles(
+                          type: FileType.video, // Filters specifically for video files
+                        );
+
+                        if (result != null) {
+                          setState(() {
+                            _videoName = result.files.single.name;
+                          });
+                        }
                       }),
                       const SizedBox(height: 25),
                       _styledTextField("Sign Description (Label)", Icons.label_important_outline, _descController, maxLines: 3),

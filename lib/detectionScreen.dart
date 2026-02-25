@@ -7,19 +7,24 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:web_socket_channel/io.dart';
 import 'package:image/image.dart' as img;
 import 'package:flutter/services.dart';
-import 'package:flutter/scheduler.dart';
-import 'package:flutter_tts/flutter_tts.dart'; // Ensure flutter_tts is in pubspec.yaml
-import 'main.dart'; 
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 class DetectionScreen extends StatefulWidget {
-  const DetectionScreen({super.key});
+  final bool isBlindMode; 
+  final List<CameraDescription> availableCameras; 
+
+  const DetectionScreen({
+    super.key, 
+    this.isBlindMode = false,
+    required this.availableCameras, 
+  });
 
   @override
   State<DetectionScreen> createState() => _DetectionScreenState();
 }
 
 class _DetectionScreenState extends State<DetectionScreen> {
-  // --- STATE ---
   CameraController? _controller;
   IOWebSocketChannel? _channel;
   int _selectedCameraIndex = 0;
@@ -27,51 +32,153 @@ class _DetectionScreenState extends State<DetectionScreen> {
   DateTime _lastProcessedTime = DateTime.now();
   Timer? _windowsTimer; 
 
-  // --- UI & SPEECH STATE ---
-  String _currentLabel = "Waiting for hands...";
+  String _currentLabel = "Waiting for hands..."; 
   String _lastSpokenLabel = ""; 
-  bool _isListening = false;
-  bool _isSpeechEnabled = false; // Speaker Toggle
+  String _remoteMessage = ""; 
+  late bool _isSpeechEnabled; 
+  bool _isListening = false; 
+  
   final FlutterTts _flutterTts = FlutterTts(); 
+  final stt.SpeechToText _speech = stt.SpeechToText();
   final TextEditingController _textController = TextEditingController();
 
-  final String _socketUrl = 'ws://192.168.68.110:8000/ws/predict';
-  static const platform = MethodChannel('speech_to_text_windows');
-
-  final LinearGradient _uiGradient = const LinearGradient(
+  final LinearGradient _interpreterGradient = const LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
     colors: [Color(0xFF52B0B7), Color(0xFF085065)],
   );
 
+  final LinearGradient _remoteGradient = const LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFF8E2DE2), Color(0xFF4A00E0)], 
+  );
+
   @override
   void initState() {
     super.initState();
-    platform.setMethodCallHandler(_handleMethodCall);
-    _initWebSocket();
-    _setupInitialCamera();
+    _isSpeechEnabled = true; 
     _initTts();
+    _initWebSocket();
+    _initSpeech();
+    _setupInitialCamera();
+
+    // THIS ENSURES IT READS EVERY TIME THE PAGE IS SHOWN
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (widget.isBlindMode) {
+        _announceBlindMode();
+      }
+    });
   }
 
-  void _initTts() async {
+  Future<void> _initTts() async {
     await _flutterTts.setLanguage("en-US");
-    await _flutterTts.setSpeechRate(0.5); 
+    await _flutterTts.setSpeechRate(0.5);
     await _flutterTts.setVolume(1.0);
+    await _flutterTts.awaitSpeakCompletion(true);
+  }
+
+  Future<void> _announceBlindMode() async {
+    // Small delay to let the screen transition finish
+    await Future.delayed(const Duration(milliseconds: 500));
+    // Use a direct call to speak to bypass the label filters
+    await _flutterTts.stop(); 
+    await _flutterTts.speak("Blind mode active. Hold the screen to speak.");
   }
 
   void _speak(String text) async {
-    // Only speak if speaker is ON and it's a new word
-    if (!_isSpeechEnabled || text == _lastSpokenLabel || text.contains("Waiting")) return;
+    if (!_isSpeechEnabled || text.contains("Waiting")) return;
     
-    String wordOnly = text.split(' (')[0]; // Cleans "Hello (90%)" to just "Hello"
+    String wordOnly = text.split(' (')[0];
+    
+    // Status alerts (Mic/Mode) should ALWAYS be spoken
+    bool isStatusAlert = text.contains("Microphone") || text.contains("Blind mode");
+    
+    if (wordOnly == _lastSpokenLabel && !isStatusAlert) return;
+
+    // If it's a priority alert, stop the current label speech
+    if (isStatusAlert) await _flutterTts.stop();
+
     await _flutterTts.speak(wordOnly);
-    _lastSpokenLabel = text;
+    _lastSpokenLabel = wordOnly;
   }
 
-  // --- CAMERA INITIALIZATION ---
+  void _listen() async {
+    bool available = await _speech.initialize();
+    if (available) {
+      HapticFeedback.heavyImpact();
+      if (widget.isBlindMode) {
+        await _flutterTts.stop();
+        await _flutterTts.speak("Microphone on"); 
+      }
+      
+      setState(() => _isListening = true);
+      _speech.listen(onResult: (val) {
+        setState(() {
+          _textController.text = val.recognizedWords;
+        });
+      });
+    }
+  }
+
+  void _stopListening() async {
+    if (_isListening) {
+      HapticFeedback.mediumImpact();
+      setState(() => _isListening = false);
+      await _speech.stop();
+      
+      if (widget.isBlindMode) {
+        await _flutterTts.stop(); // Force stop any other speech
+        await _flutterTts.speak("Microphone off");
+        
+        if (_textController.text.isNotEmpty) {
+          _sendReply();
+        }
+      }
+    }
+  }
+
+  // --- REPLACING REMAINING METHODS (WEBSOCKET, CAMERA, ETC) ---
+
+  void _initSpeech() async => await _speech.initialize();
+
+  void _initWebSocket() {
+    try {
+      _channel = IOWebSocketChannel.connect('ws://192.168.68.110:8000/ws/predict');
+      _channel!.stream.listen((message) {
+        final data = jsonDecode(message);
+        if (mounted) {
+          setState(() {
+            if (data['type'] == 'remote') {
+              _remoteMessage = data['message'];
+              _speak("New message: $_remoteMessage");
+            } else {
+              _currentLabel = "${data['label']} (${(data['confidence'] * 100).toStringAsFixed(0)}%)";
+              _isProcessing = false;
+              if (data['confidence'] > 0.8) {
+                _speak(data['label']);
+              }
+            }
+          });
+        }
+      });
+    } catch (e) { debugPrint("WS Error: $e"); }
+  }
+
+  void _sendReply() {
+    if (_textController.text.isNotEmpty) {
+      final reply = jsonEncode({"type": "remote", "message": _textController.text});
+      _channel?.sink.add(reply);
+      setState(() {
+        _remoteMessage = _textController.text;
+        _textController.clear();
+      });
+    }
+  }
+
   void _setupInitialCamera() {
-    if (cameras.isEmpty) return;
-    int frontIndex = cameras.indexWhere((cam) => cam.lensDirection == CameraLensDirection.front);
+    if (widget.availableCameras.isEmpty) return;
+    int frontIndex = widget.availableCameras.indexWhere((cam) => cam.lensDirection == CameraLensDirection.front);
     _selectedCameraIndex = frontIndex != -1 ? frontIndex : 0;
     _initCamera(_selectedCameraIndex);
   }
@@ -83,24 +190,18 @@ class _DetectionScreenState extends State<DetectionScreen> {
       _controller = null;
       await Future.delayed(Duration(milliseconds: Platform.isWindows ? 1200 : 200));
     }
-
     _controller = CameraController(
-      cameras[index],
-      ResolutionPreset.medium,
+      widget.availableCameras[index], 
+      ResolutionPreset.medium, 
       enableAudio: false,
-      imageFormatGroup: Platform.isWindows ? ImageFormatGroup.unknown : ImageFormatGroup.yuv420,
+      imageFormatGroup: Platform.isWindows ? ImageFormatGroup.unknown : ImageFormatGroup.yuv420
     );
-
     try {
       await _controller!.initialize();
       if (!mounted) return;
       setState(() {});
       Platform.isWindows ? _startWindowsCaptureLoop() : _controller!.startImageStream(_processCameraImageAndroid);
-    } catch (e) {
-      if (Platform.isWindows && e.toString().contains('camera_error')) {
-        Future.delayed(const Duration(seconds: 2), () => _initCamera(index));
-      }
-    }
+    } catch (e) { debugPrint("Camera Err: $e"); }
   }
 
   void _startWindowsCaptureLoop() {
@@ -109,9 +210,8 @@ class _DetectionScreenState extends State<DetectionScreen> {
       _isProcessing = true;
       try {
         final XFile file = await _controller!.takePicture();
-        final bytes = await file.readAsBytes();
-        _channel?.sink.add(base64Encode(bytes));
-      } catch (e) { debugPrint("Capture Error: $e"); }
+        _channel?.sink.add(base64Encode(await file.readAsBytes()));
+      } catch (e) { }
       _isProcessing = false;
     });
   }
@@ -126,36 +226,14 @@ class _DetectionScreenState extends State<DetectionScreen> {
     } finally { _isProcessing = false; }
   }
 
-  // --- WEBSOCKET & STT ---
-  void _initWebSocket() {
-    try {
-      _channel = IOWebSocketChannel.connect(_socketUrl);
-      _channel!.stream.listen((message) {
-        final data = jsonDecode(message);
-        if (mounted) {
-          String newLabel = "${data['label']} (${(data['confidence'] * 100).toStringAsFixed(0)}%)";
-          setState(() {
-            _currentLabel = newLabel;
-            _isProcessing = false; 
-          });
-          _speak(newLabel); // Automatic speech trigger
-        }
-      });
-    } catch (e) { debugPrint("WS Error: $e"); }
-  }
-
-  Future<void> _handleMethodCall(MethodCall call) async {
-    if (call.method != "textRecognition") return;
-    final String words = call.arguments['recognizedWords']?.toString() ?? "";
-    setState(() { _currentLabel = words; _textController.text = words; });
-  }
-
   @override
   void dispose() {
     _windowsTimer?.cancel();
     _controller?.dispose();
     _channel?.sink.close();
     _flutterTts.stop();
+    _speech.stop();
+    _textController.dispose();
     super.dispose();
   }
 
@@ -168,101 +246,114 @@ class _DetectionScreenState extends State<DetectionScreen> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
-        leading: IconButton(
-          icon: ShaderMask(
-            blendMode: BlendMode.srcIn,
-            shaderCallback: (bounds) => _uiGradient.createShader(bounds),
-            child: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
-          ),
-          onPressed: () => Navigator.pop(context),
-        ),
         title: ShaderMask(
           blendMode: BlendMode.srcIn,
-          shaderCallback: (bounds) => _uiGradient.createShader(bounds),
-          child: Text("Sign Interpreter", 
-            style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 18, color: Colors.white)),
+          shaderCallback: (bounds) => _interpreterGradient.createShader(bounds),
+          child: Text(widget.isBlindMode ? "Blind Mode" : "Sign Language Interpreter", 
+            style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18)),
         ),
         actions: [
-          // SPEAKER TOGGLE BUTTON
-          IconButton(
-            icon: Icon(
-              _isSpeechEnabled ? Icons.volume_up_rounded : Icons.volume_off_rounded,
-              color: _isSpeechEnabled ? const Color(0xFF52B0B7) : Colors.grey,
+          // REMOVED SPEAKER BUTTON FOR BLIND MODE
+          if (!widget.isBlindMode)
+            IconButton(
+              icon: Icon(_isSpeechEnabled ? Icons.volume_up : Icons.volume_off, color: const Color(0xFF52B0B7)),
+              onPressed: () => setState(() => _isSpeechEnabled = !_isSpeechEnabled),
             ),
-            onPressed: () {
-              setState(() {
-                _isSpeechEnabled = !_isSpeechEnabled;
-                if (!_isSpeechEnabled) _flutterTts.stop();
-              });
-            },
-          ),
-          const SizedBox(width: 8),
         ],
       ),
-      body: Flex(
-        direction: isPortrait ? Axis.vertical : Axis.horizontal,
-        children: [
-          Flexible(
-            flex: isPortrait ? 7 : 1,
-            child: Container(
-              margin: const EdgeInsets.all(16),
-              decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(24)),
-              clipBehavior: Clip.antiAlias,
-              child: Stack(
-                alignment: Alignment.bottomRight,
+      body: GestureDetector(
+        onLongPress: widget.isBlindMode ? _listen : null,
+        onLongPressUp: widget.isBlindMode ? _stopListening : null,
+        behavior: HitTestBehavior.opaque,
+        child: Flex(
+          direction: isPortrait ? Axis.vertical : Axis.horizontal,
+          children: [
+            Flexible(
+              flex: isPortrait ? 6 : 1,
+              child: Container(
+                margin: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.black, 
+                  borderRadius: BorderRadius.circular(24),
+                  border: widget.isBlindMode ? Border.all(color: const Color(0xFF52B0B7), width: 4) : null,
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: _controller != null && _controller!.value.isInitialized
+                    ? CameraPreview(_controller!)
+                    : const Center(child: CircularProgressIndicator()),
+              ),
+            ),
+            Expanded(
+              flex: isPortrait ? 4 : 1,
+              child: Column(
                 children: [
-                  _controller != null && _controller!.value.isInitialized
-                      ? Center(child: AspectRatio(
-                          aspectRatio: isPortrait ? 1 / _controller!.value.aspectRatio : _controller!.value.aspectRatio,
-                          child: CameraPreview(_controller!),
-                        ))
-                      : const Center(child: CircularProgressIndicator()),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        ShaderMask(
+                          blendMode: BlendMode.srcIn,
+                          shaderCallback: (bounds) => _interpreterGradient.createShader(bounds),
+                          child: Text(_currentLabel, textAlign: TextAlign.center, 
+                            style: const TextStyle(fontSize: 30, fontWeight: FontWeight.bold, color: Colors.white)),
+                        ),
+                        if (widget.isBlindMode && _isListening)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 8.0),
+                            child: Text("LISTENING...", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                          ),
+                        if (_remoteMessage.isNotEmpty) ...[
+                          const Padding(padding: EdgeInsets.symmetric(vertical: 10), child: Divider(indent: 80, endIndent: 80)),
+                          ShaderMask(
+                            blendMode: BlendMode.srcIn,
+                            shaderCallback: (bounds) => _remoteGradient.createShader(bounds),
+                            child: Text(_remoteMessage, textAlign: TextAlign.center, 
+                              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w500, color: Colors.white, fontStyle: FontStyle.italic)),
+                          ),
+                        ]
+                      ],
+                    ),
+                  ),
+                  if (!widget.isBlindMode)
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Row(
+                        children: [
+                          GestureDetector(
+                            onLongPress: _listen,
+                            onLongPressUp: _stopListening,
+                            child: CircleAvatar(
+                              radius: 25,
+                              backgroundColor: _isListening ? Colors.red : const Color(0xFF52B0B7),
+                              child: Icon(_isListening ? Icons.mic : Icons.mic_none, color: Colors.white),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TextField(
+                              controller: _textController,
+                              decoration: InputDecoration(
+                                hintText: _isListening ? "Listening..." : "Reply to sign...",
+                                filled: true,
+                                fillColor: Colors.grey[100],
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          CircleAvatar(
+                            radius: 25,
+                            backgroundColor: const Color(0xFF8E2DE2),
+                            child: IconButton(icon: const Icon(Icons.send, color: Colors.white), onPressed: _sendReply),
+                          )
+                        ],
+                      ),
+                    ),
                 ],
               ),
             ),
-          ),
-          Expanded(
-            flex: isPortrait ? 3 : 1,
-            child: Column(
-              children: [
-                Expanded(
-                  child: Center(
-                    child: ShaderMask(
-                      blendMode: BlendMode.srcIn,
-                      shaderCallback: (bounds) => _uiGradient.createShader(bounds),
-                      child: Text(_currentLabel, 
-                        textAlign: TextAlign.center, 
-                        style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white)),
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        backgroundColor: const Color(0xFF52B0B7),
-                        child: const Icon(Icons.mic_none, color: Colors.white),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: TextField(
-                          controller: _textController,
-                          decoration: InputDecoration(
-                            hintText: "Type or speak...", 
-                            filled: true, 
-                            fillColor: Colors.grey[100], 
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none)
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
