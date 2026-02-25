@@ -231,7 +231,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
           Align(
             alignment: Alignment.centerLeft,
             child: FractionallySizedBox(
-              widthFactor: 0.3,
+              widthFactor: 0.15,
               heightFactor: 1.0,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque, // FIX: Ensures the empty space is clickable
