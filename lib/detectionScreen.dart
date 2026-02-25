@@ -307,45 +307,59 @@ class _DetectionScreenState extends State<DetectionScreen> {
           direction: isPortrait ? Axis.vertical : Axis.horizontal,
           children: [
             // --- CAMERA SECTION ---
-            Flexible(
-              flex: isPortrait ? 6 : 1,
-              child: Stack(
-                children: [
-                  Container(
-                    margin: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.black,
-                      borderRadius: BorderRadius.circular(24),
-                      border: widget.isBlindMode 
-                          ? Border.all(color: const Color(0xFF52B0B7), width: 4) 
-                          : null,
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: _controller != null && _controller!.value.isInitialized
-                        ? Center(
-                            child: AspectRatio(
-                              // Strictly maintaining the hardware camera ratio
-                              aspectRatio: _controller!.value.aspectRatio,
-                              child: CameraPreview(_controller!),
-                            ),
-                          )
-                        : const Center(child: CircularProgressIndicator()),
+           Flexible(
+            flex: isPortrait ? 6 : 1,
+            child: Stack(
+              children: [
+                Container(
+                  margin: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(24),
+                    border: widget.isBlindMode 
+                        ? Border.all(color: const Color(0xFF52B0B7), width: 4) 
+                        : null,
                   ),
-                  if (isMobile)
-                    Positioned(
-                      top: 25,
-                      right: 25,
-                      child: CircleAvatar(
-                        backgroundColor: Colors.black54,
-                        child: IconButton(
-                          icon: const Icon(Icons.flip_camera_ios, color: Colors.white, size: 25),
-                          onPressed: _toggleCamera,
-                        ),
+                  clipBehavior: Clip.antiAlias,
+                  child: _controller != null && _controller!.value.isInitialized
+                      ? LayoutBuilder(
+                          builder: (context, constraints) {
+                            return Center(
+                              child: SizedBox(
+                                width: constraints.maxWidth,
+                                height: constraints.maxHeight,
+                                child: FittedBox(
+                                  // This ensures the camera "covers" the area 
+                                  // and rotates correctly based on the controller's internal orientation
+                                  fit: BoxFit.cover,
+                                  child: SizedBox(
+                                    width: constraints.maxWidth,
+                                    // We calculate the height based on the INVERSE ratio for portrait
+                                    height: constraints.maxWidth / _controller!.value.aspectRatio,
+                                    child: CameraPreview(_controller!),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        )
+                      : const Center(child: CircularProgressIndicator()),
+                ),
+                if (isMobile)
+                  Positioned(
+                    top: 25,
+                    right: 25,
+                    child: CircleAvatar(
+                      backgroundColor: Colors.black54,
+                      child: IconButton(
+                        icon: const Icon(Icons.flip_camera_ios, color: Colors.white, size: 25),
+                        onPressed: _toggleCamera,
                       ),
                     ),
-                ],
-              ),
+                  ),
+              ],
             ),
+          ),
 
             // --- RESULTS & CONTROLS SECTION ---
             Expanded(
