@@ -145,7 +145,7 @@ class _DetectionScreenState extends State<DetectionScreen> {
 
   void _initWebSocket() {
     try {
-      _channel = IOWebSocketChannel.connect('ws://192.168.0.193:8000/ws/predict');
+      _channel = IOWebSocketChannel.connect('ws://192.168.68.110:8000/ws/predict');
       _channel!.stream.listen((message) {
         final data = jsonDecode(message);
         if (mounted) {
@@ -252,7 +252,6 @@ class _DetectionScreenState extends State<DetectionScreen> {
   }
 
 
-@override
   @override
   Widget build(BuildContext context) {
     final MediaQueryData mediaQuery = MediaQuery.of(context);
@@ -261,7 +260,6 @@ class _DetectionScreenState extends State<DetectionScreen> {
 
     return Scaffold(
       backgroundColor: Colors.white,
-      // Removed the FAB to prevent overlap with the Send button
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
@@ -332,7 +330,6 @@ class _DetectionScreenState extends State<DetectionScreen> {
                       )
                           : const Center(child: CircularProgressIndicator()),
                     ),
-                    // Camera Flip Button moved here to avoid bottom overlap
                     if (isMobile)
                       Positioned(
                         top: 25,
@@ -457,7 +454,6 @@ class _DetectionScreenState extends State<DetectionScreen> {
                               ),
                             ),
                             const SizedBox(width: 10),
-                            // Send Button - Now free from FAB overlap
                             CircleAvatar(
                               radius: 25,
                               backgroundColor: const Color(0xFF8E2DE2),
