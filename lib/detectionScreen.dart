@@ -9,6 +9,7 @@ import 'package:image/image.dart' as img;
 import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform;
 
 class DetectionScreen extends StatefulWidget {
   final bool isBlindMode; 
@@ -138,7 +139,7 @@ class _DetectionScreenState extends State<DetectionScreen> {
     }
   }
 
-  // --- REPLACING REMAINING METHODS (WEBSOCKET, CAMERA, ETC) ---
+
 
   void _initSpeech() async => await _speech.initialize();
 
@@ -237,13 +238,46 @@ class _DetectionScreenState extends State<DetectionScreen> {
     super.dispose();
   }
 
- @override
+  void _toggleCamera() async {
+  if (widget.availableCameras == null || widget.availableCameras.isEmpty) return;
+
+  // Find the next camera in the list
+  int newDescriptionIndex = (widget.availableCameras.indexOf(_controller!.description) + 1) % widget.availableCameras.length;
+  CameraDescription newDescription = widget.availableCameras[newDescriptionIndex];
+
+  // Dispose of the current controller before starting a new one
+  await _controller?.dispose();
+
+  // Initialize the new controller
+  _controller = CameraController(
+    newDescription,
+    ResolutionPreset.medium,
+    enableAudio: false,
+  );
+
+  try {
+    await _controller!.initialize();
+    // Restart the image stream for detection if needed
+    _controller!.startImageStream((CameraImage image) {
+       // Your existing frame processing logic here
+    });
+    setState(() {});
+  } catch (e) {
+    print("Error toggling camera: $e");
+  }
+}
+
+
+@override
+  @override
   Widget build(BuildContext context) {
     final MediaQueryData mediaQuery = MediaQuery.of(context);
     final bool isPortrait = mediaQuery.orientation == Orientation.portrait;
+    final bool isMobile = !kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS);
 
     return Scaffold(
       backgroundColor: Colors.white,
+      // Removed the FAB to prevent overlap with the Send button
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
@@ -258,7 +292,10 @@ class _DetectionScreenState extends State<DetectionScreen> {
         actions: [
           if (!widget.isBlindMode)
             IconButton(
-              icon: Icon(_isSpeechEnabled ? Icons.volume_up : Icons.volume_off, color: const Color(0xFF52B0B7)),
+              icon: Icon(
+                _isSpeechEnabled ? Icons.volume_up : Icons.volume_off,
+                color: const Color(0xFF52B0B7),
+              ),
               onPressed: () => setState(() => _isSpeechEnabled = !_isSpeechEnabled),
             ),
         ],
@@ -271,101 +308,116 @@ class _DetectionScreenState extends State<DetectionScreen> {
           child: Flex(
             direction: isPortrait ? Axis.vertical : Axis.horizontal,
             children: [
-              // --- CAMERA SECTION (Strict Ratio) ---
+              // --- CAMERA SECTION ---
               Flexible(
                 flex: isPortrait ? 6 : 1,
-                child: Container(
-                  margin: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.black,
-                    borderRadius: BorderRadius.circular(24),
-                    border: widget.isBlindMode 
-                        ? Border.all(color: const Color(0xFF52B0B7), width: 4) 
-                        : null,
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: _controller != null && _controller!.value.isInitialized
-                      ? Center(
-                          child: AspectRatio(
-                            aspectRatio: _controller!.value.aspectRatio,
-                            child: CameraPreview(_controller!),
+                child: Stack( // Using Stack to place the flip button inside the camera box
+                  children: [
+                    Container(
+                      margin: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(24),
+                        border: widget.isBlindMode 
+                            ? Border.all(color: const Color(0xFF52B0B7), width: 4) 
+                            : null,
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: _controller != null && _controller!.value.isInitialized
+                          ? Center(
+                              child: AspectRatio(
+                                aspectRatio: _controller!.value.aspectRatio,
+                                child: CameraPreview(_controller!),
+                              ),
+                            )
+                          : const Center(child: CircularProgressIndicator()),
+                    ),
+                    // Camera Flip Button moved here to avoid bottom overlap
+                    if (isMobile)
+                      Positioned(
+                        top: 25,
+                        right: 25,
+                        child: CircleAvatar(
+                          backgroundColor: Colors.black54,
+                          child: IconButton(
+                            icon: const Icon(Icons.flip_camera_ios, color: Colors.white, size: 25),
+                            onPressed: _toggleCamera,
                           ),
-                        )
-                      : const Center(child: CircularProgressIndicator()),
+                        ),
+                      ),
+                  ],
                 ),
               ),
 
-              // --- RESULTS & LISTENING SECTION ---
+              // --- RESULTS & CONTROLS SECTION ---
               Expanded(
                 flex: isPortrait ? 4 : 1,
                 child: Column(
                   children: [
                     Expanded(
-                      child: Stack(
-                        alignment: Alignment.center, // Centers everything in this area
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // Main text content
-                          SingleChildScrollView(
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                ShaderMask(
-                                  blendMode: BlendMode.srcIn,
-                                  shaderCallback: (bounds) => _interpreterGradient.createShader(bounds),
-                                  child: Text(
-                                    _currentLabel,
-                                    textAlign: TextAlign.center,
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 28, 
-                                      fontWeight: FontWeight.bold, 
-                                      color: Colors.white
-                                    ),
-                                  ),
-                                ),
-                                if (_remoteMessage.isNotEmpty) ...[
-                                  const Padding(
-                                    padding: EdgeInsets.symmetric(vertical: 15), 
-                                    child: Divider(indent: 50, endIndent: 50)
-                                  ),
-                                  ShaderMask(
-                                    blendMode: BlendMode.srcIn,
-                                    shaderCallback: (bounds) => _remoteGradient.createShader(bounds),
-                                    child: Text(
-                                      _remoteMessage,
-                                      textAlign: TextAlign.center,
-                                      style: GoogleFonts.poppins(
-                                        fontSize: 22, 
-                                        fontWeight: FontWeight.w500, 
-                                        color: Colors.white, 
-                                        fontStyle: FontStyle.italic
+                          Expanded(
+                            child: Center(
+                              child: SingleChildScrollView(
+                                padding: const EdgeInsets.symmetric(horizontal: 20),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    ShaderMask(
+                                      blendMode: BlendMode.srcIn,
+                                      shaderCallback: (bounds) => _interpreterGradient.createShader(bounds),
+                                      child: Text(
+                                        _currentLabel,
+                                        textAlign: TextAlign.center,
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 28, 
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                ],
-                              ],
+                                    if (_remoteMessage.isNotEmpty) ...[
+                                      const Divider(height: 30, indent: 40, endIndent: 40),
+                                      ShaderMask(
+                                        blendMode: BlendMode.srcIn,
+                                        shaderCallback: (bounds) => _remoteGradient.createShader(bounds),
+                                        child: Text(
+                                          _remoteMessage,
+                                          textAlign: TextAlign.center,
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 22, 
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.white,
+                                            fontStyle: FontStyle.italic
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
-                          
-                          // LISTENING Indicator - Fixed in the center-right of this section
                           if (widget.isBlindMode && _isListening)
-                            Positioned(
-                              right: 20,
+                            Container(
+                              width: 45,
+                              margin: const EdgeInsets.symmetric(vertical: 20),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withOpacity(0.05),
+                                borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
+                              ),
+                              alignment: Alignment.center,
                               child: RotatedBox(
-                                quarterTurns: isPortrait ? 0 : 0, 
-                                child: Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: Colors.red.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(8)
-                                  ),
-                                  child: const Text(
-                                    "LISTENING...", 
-                                    style: TextStyle(
-                                      color: Colors.red, 
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 1.2
-                                    )
+                                quarterTurns: 1,
+                                child: Text(
+                                  "LISTENING",
+                                  style: GoogleFonts.poppins(
+                                    color: Colors.red,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                    letterSpacing: 2
                                   ),
                                 ),
                               ),
@@ -374,7 +426,6 @@ class _DetectionScreenState extends State<DetectionScreen> {
                       ),
                     ),
 
-                    // Input Bar (Visible only when NOT in Blind Mode)
                     if (!widget.isBlindMode)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -406,6 +457,7 @@ class _DetectionScreenState extends State<DetectionScreen> {
                               ),
                             ),
                             const SizedBox(width: 10),
+                            // Send Button - Now free from FAB overlap
                             CircleAvatar(
                               radius: 25,
                               backgroundColor: const Color(0xFF8E2DE2),
