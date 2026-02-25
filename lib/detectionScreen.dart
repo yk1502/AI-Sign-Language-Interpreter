@@ -237,9 +237,10 @@ class _DetectionScreenState extends State<DetectionScreen> {
     super.dispose();
   }
 
-  @override
+ @override
   Widget build(BuildContext context) {
-    final bool isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
+    final MediaQueryData mediaQuery = MediaQuery.of(context);
+    final bool isPortrait = mediaQuery.orientation == Orientation.portrait;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -249,11 +250,12 @@ class _DetectionScreenState extends State<DetectionScreen> {
         title: ShaderMask(
           blendMode: BlendMode.srcIn,
           shaderCallback: (bounds) => _interpreterGradient.createShader(bounds),
-          child: Text(widget.isBlindMode ? "Blind Mode" : "Sign Language Interpreter", 
-            style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18)),
+          child: Text(
+            widget.isBlindMode ? "Blind Mode" : "Sign Language Interpreter",
+            style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18),
+          ),
         ),
         actions: [
-          // REMOVED SPEAKER BUTTON FOR BLIND MODE
           if (!widget.isBlindMode)
             IconButton(
               icon: Icon(_isSpeechEnabled ? Icons.volume_up : Icons.volume_off, color: const Color(0xFF52B0B7)),
@@ -265,94 +267,161 @@ class _DetectionScreenState extends State<DetectionScreen> {
         onLongPress: widget.isBlindMode ? _listen : null,
         onLongPressUp: widget.isBlindMode ? _stopListening : null,
         behavior: HitTestBehavior.opaque,
-        child: Flex(
-          direction: isPortrait ? Axis.vertical : Axis.horizontal,
-          children: [
-            Flexible(
-              flex: isPortrait ? 6 : 1,
-              child: Container(
-                margin: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.black, 
-                  borderRadius: BorderRadius.circular(24),
-                  border: widget.isBlindMode ? Border.all(color: const Color(0xFF52B0B7), width: 4) : null,
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: _controller != null && _controller!.value.isInitialized
-                    ? CameraPreview(_controller!)
-                    : const Center(child: CircularProgressIndicator()),
-              ),
-            ),
-            Expanded(
-              flex: isPortrait ? 4 : 1,
-              child: Column(
-                children: [
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        ShaderMask(
-                          blendMode: BlendMode.srcIn,
-                          shaderCallback: (bounds) => _interpreterGradient.createShader(bounds),
-                          child: Text(_currentLabel, textAlign: TextAlign.center, 
-                            style: const TextStyle(fontSize: 30, fontWeight: FontWeight.bold, color: Colors.white)),
-                        ),
-                        if (widget.isBlindMode && _isListening)
-                          const Padding(
-                            padding: EdgeInsets.only(top: 8.0),
-                            child: Text("LISTENING...", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                          ),
-                        if (_remoteMessage.isNotEmpty) ...[
-                          const Padding(padding: EdgeInsets.symmetric(vertical: 10), child: Divider(indent: 80, endIndent: 80)),
-                          ShaderMask(
-                            blendMode: BlendMode.srcIn,
-                            shaderCallback: (bounds) => _remoteGradient.createShader(bounds),
-                            child: Text(_remoteMessage, textAlign: TextAlign.center, 
-                              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w500, color: Colors.white, fontStyle: FontStyle.italic)),
-                          ),
-                        ]
-                      ],
-                    ),
+        child: SafeArea(
+          child: Flex(
+            direction: isPortrait ? Axis.vertical : Axis.horizontal,
+            children: [
+              // --- CAMERA SECTION (Strict Ratio) ---
+              Flexible(
+                flex: isPortrait ? 6 : 1,
+                child: Container(
+                  margin: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(24),
+                    border: widget.isBlindMode 
+                        ? Border.all(color: const Color(0xFF52B0B7), width: 4) 
+                        : null,
                   ),
-                  if (!widget.isBlindMode)
-                    Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Row(
+                  clipBehavior: Clip.antiAlias,
+                  child: _controller != null && _controller!.value.isInitialized
+                      ? Center(
+                          child: AspectRatio(
+                            aspectRatio: _controller!.value.aspectRatio,
+                            child: CameraPreview(_controller!),
+                          ),
+                        )
+                      : const Center(child: CircularProgressIndicator()),
+                ),
+              ),
+
+              // --- RESULTS & LISTENING SECTION ---
+              Expanded(
+                flex: isPortrait ? 4 : 1,
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: Stack(
+                        alignment: Alignment.center, // Centers everything in this area
                         children: [
-                          GestureDetector(
-                            onLongPress: _listen,
-                            onLongPressUp: _stopListening,
-                            child: CircleAvatar(
-                              radius: 25,
-                              backgroundColor: _isListening ? Colors.red : const Color(0xFF52B0B7),
-                              child: Icon(_isListening ? Icons.mic : Icons.mic_none, color: Colors.white),
+                          // Main text content
+                          SingleChildScrollView(
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                ShaderMask(
+                                  blendMode: BlendMode.srcIn,
+                                  shaderCallback: (bounds) => _interpreterGradient.createShader(bounds),
+                                  child: Text(
+                                    _currentLabel,
+                                    textAlign: TextAlign.center,
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 28, 
+                                      fontWeight: FontWeight.bold, 
+                                      color: Colors.white
+                                    ),
+                                  ),
+                                ),
+                                if (_remoteMessage.isNotEmpty) ...[
+                                  const Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 15), 
+                                    child: Divider(indent: 50, endIndent: 50)
+                                  ),
+                                  ShaderMask(
+                                    blendMode: BlendMode.srcIn,
+                                    shaderCallback: (bounds) => _remoteGradient.createShader(bounds),
+                                    child: Text(
+                                      _remoteMessage,
+                                      textAlign: TextAlign.center,
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 22, 
+                                        fontWeight: FontWeight.w500, 
+                                        color: Colors.white, 
+                                        fontStyle: FontStyle.italic
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: TextField(
-                              controller: _textController,
-                              decoration: InputDecoration(
-                                hintText: _isListening ? "Listening..." : "Reply to sign...",
-                                filled: true,
-                                fillColor: Colors.grey[100],
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
+                          
+                          // LISTENING Indicator - Fixed in the center-right of this section
+                          if (widget.isBlindMode && _isListening)
+                            Positioned(
+                              right: 20,
+                              child: RotatedBox(
+                                quarterTurns: isPortrait ? 0 : 0, 
+                                child: Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(8)
+                                  ),
+                                  child: const Text(
+                                    "LISTENING...", 
+                                    style: TextStyle(
+                                      color: Colors.red, 
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 1.2
+                                    )
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          CircleAvatar(
-                            radius: 25,
-                            backgroundColor: const Color(0xFF8E2DE2),
-                            child: IconButton(icon: const Icon(Icons.send, color: Colors.white), onPressed: _sendReply),
-                          )
                         ],
                       ),
                     ),
-                ],
+
+                    // Input Bar (Visible only when NOT in Blind Mode)
+                    if (!widget.isBlindMode)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        child: Row(
+                          children: [
+                            GestureDetector(
+                              onLongPress: _listen,
+                              onLongPressUp: _stopListening,
+                              child: CircleAvatar(
+                                radius: 25,
+                                backgroundColor: _isListening ? Colors.red : const Color(0xFF52B0B7),
+                                child: Icon(_isListening ? Icons.mic : Icons.mic_none, color: Colors.white),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: TextField(
+                                controller: _textController,
+                                decoration: InputDecoration(
+                                  hintText: _isListening ? "Listening..." : "Reply...",
+                                  filled: true,
+                                  fillColor: Colors.grey[100],
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(30), 
+                                    borderSide: BorderSide.none
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            CircleAvatar(
+                              radius: 25,
+                              backgroundColor: const Color(0xFF8E2DE2),
+                              child: IconButton(
+                                icon: const Icon(Icons.send, color: Colors.white), 
+                                onPressed: _sendReply
+                              ),
+                            )
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
