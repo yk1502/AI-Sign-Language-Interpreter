@@ -212,7 +212,7 @@ class _DetectionScreenState extends State<DetectionScreen> {
   }
 
   void _processCameraImageAndroid(CameraImage image) async {
-    if (_isProcessing || _controller == null || !_controller!.value.isInitialized || DateTime.now().difference(_lastProcessedTime).inMilliseconds < 200) return;
+    if (_isProcessing || _controller == null || !_controller!.value.isInitialized || DateTime.now().difference(_lastProcessedTime).inMilliseconds < 150) return;
     _isProcessing = true;
     _lastProcessedTime = DateTime.now();
     try {
