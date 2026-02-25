@@ -145,7 +145,7 @@ class _DetectionScreenState extends State<DetectionScreen> {
 
   void _initWebSocket() {
     try {
-      _channel = IOWebSocketChannel.connect('ws://192.168.68.110:8000/ws/predict');
+      _channel = IOWebSocketChannel.connect('ws://192.168.0.193:8000/ws/predict');
       _channel!.stream.listen((message) {
         final data = jsonDecode(message);
         if (mounted) {
@@ -185,12 +185,6 @@ class _DetectionScreenState extends State<DetectionScreen> {
   }
 
   Future<void> _initCamera(int index) async {
-    _windowsTimer?.cancel(); 
-    if (_controller != null) {
-      await _controller!.dispose();
-      _controller = null;
-      await Future.delayed(Duration(milliseconds: Platform.isWindows ? 1200 : 200));
-    }
     _controller = CameraController(
       widget.availableCameras[index], 
       ResolutionPreset.medium, 
@@ -201,7 +195,7 @@ class _DetectionScreenState extends State<DetectionScreen> {
       await _controller!.initialize();
       if (!mounted) return;
       setState(() {});
-      Platform.isWindows ? _startWindowsCaptureLoop() : _controller!.startImageStream(_processCameraImageAndroid);
+      Platform.isWindows ? _startWindowsCaptureLoop() : await _controller!.startImageStream((CameraImage image) { _processCameraImageAndroid(image); });
     } catch (e) { debugPrint("Camera Err: $e"); }
   }
 
@@ -218,13 +212,18 @@ class _DetectionScreenState extends State<DetectionScreen> {
   }
 
   void _processCameraImageAndroid(CameraImage image) async {
-    if (_isProcessing || DateTime.now().difference(_lastProcessedTime).inMilliseconds < 150) return;
+    if (_isProcessing || _controller == null || !_controller!.value.isInitialized || DateTime.now().difference(_lastProcessedTime).inMilliseconds < 200) return;
     _isProcessing = true;
     _lastProcessedTime = DateTime.now();
     try {
-      List<int> jpegBytes = await convertYUV420toImageColor(image);
+      final lensDirection = _controller!.description.lensDirection;
+      List<int> jpegBytes = await convertYUV420toImageColor(image, lensDirection);
       _channel?.sink.add(base64Encode(jpegBytes));
-    } finally { _isProcessing = false; }
+    } catch (e) {
+      debugPrint("Processing Error: $e");
+    } finally {
+      _isProcessing = false;
+    }
   }
 
   @override
@@ -239,33 +238,18 @@ class _DetectionScreenState extends State<DetectionScreen> {
   }
 
   void _toggleCamera() async {
-  if (widget.availableCameras == null || widget.availableCameras.isEmpty) return;
+    if (widget.availableCameras.isEmpty) return;
 
-  // Find the next camera in the list
-  int newDescriptionIndex = (widget.availableCameras.indexOf(_controller!.description) + 1) % widget.availableCameras.length;
-  CameraDescription newDescription = widget.availableCameras[newDescriptionIndex];
+    _selectedCameraIndex = (_selectedCameraIndex + 1) % widget.availableCameras.length;
 
-  // Dispose of the current controller before starting a new one
-  await _controller?.dispose();
+    _windowsTimer?.cancel();
+    if (_controller != null) {
+      await _controller!.stopImageStream(); // Explicitly stop the stream first
+      await _controller!.dispose();
+    }
 
-  // Initialize the new controller
-  _controller = CameraController(
-    newDescription,
-    ResolutionPreset.medium,
-    enableAudio: false,
-  );
-
-  try {
-    await _controller!.initialize();
-    // Restart the image stream for detection if needed
-    _controller!.startImageStream((CameraImage image) {
-       // Your existing frame processing logic here
-    });
-    setState(() {});
-  } catch (e) {
-    print("Error toggling camera: $e");
+    await _initCamera(_selectedCameraIndex);
   }
-}
 
 
 @override
@@ -324,12 +308,28 @@ class _DetectionScreenState extends State<DetectionScreen> {
                       ),
                       clipBehavior: Clip.antiAlias,
                       child: _controller != null && _controller!.value.isInitialized
-                          ? Center(
-                              child: AspectRatio(
-                                aspectRatio: _controller!.value.aspectRatio,
+                          ? LayoutBuilder(
+                        builder: (context, constraints) {
+                          double previewWidth = Platform.isWindows
+                              ? _controller!.value.previewSize!.width
+                              : _controller!.value.previewSize!.height;
+                          double previewHeight = Platform.isWindows
+                              ? _controller!.value.previewSize!.height
+                              : _controller!.value.previewSize!.width;
+                          return SizedBox(
+                            width: constraints.maxWidth,
+                            height: constraints.maxHeight,
+                            child: FittedBox(
+                              fit: BoxFit.cover, // Ensures the box is filled without stretching
+                              child: SizedBox(
+                                width: previewWidth,
+                                height: previewHeight,
                                 child: CameraPreview(_controller!),
                               ),
-                            )
+                            ),
+                          );
+                        },
+                      )
                           : const Center(child: CircularProgressIndicator()),
                     ),
                     // Camera Flip Button moved here to avoid bottom overlap
@@ -479,17 +479,18 @@ class _DetectionScreenState extends State<DetectionScreen> {
     );
   }
 
-  Future<List<int>> convertYUV420toImageColor(CameraImage image) async {
+  Future<List<int>> convertYUV420toImageColor(CameraImage image, CameraLensDirection direction) async {
     final int width = image.width;
     final int height = image.height;
+    final int yRowStride = image.planes[0].bytesPerRow;
     final int uvRowStride = image.planes[1].bytesPerRow;
     final int? uvPixelStride = image.planes[1].bytesPerPixel;
     var imgBuffer = img.Image(width: width, height: height);
-    for (int x = 0; x < width; x++) {
-      for (int y = 0; y < height; y++) {
+    for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x++) {
+        final int yIndex = y * yRowStride + x;
         final int uvIndex = (uvPixelStride! * (x / 2).floor()) + (uvRowStride * (y / 2).floor());
-        final int index = y * width + x;
-        final yp = image.planes[0].bytes[index];
+        final yp = image.planes[0].bytes[yIndex];
         final up = image.planes[1].bytes[uvIndex];
         final vp = image.planes[2].bytes[uvIndex];
         int r = (yp + vp * 1436 / 1024 - 179).round().clamp(0, 255);
@@ -498,6 +499,13 @@ class _DetectionScreenState extends State<DetectionScreen> {
         imgBuffer.setPixelRgb(x, y, r, g, b);
       }
     }
-    return img.encodeJpg(img.copyRotate(imgBuffer, angle: 90), quality: 50);
+    img.Image transformed;
+    if (direction == CameraLensDirection.front) {
+      transformed = img.copyRotate(imgBuffer, angle: 270);
+    } else {
+      transformed = img.copyRotate(imgBuffer, angle: 90);
+      transformed = img.flipHorizontal(transformed);
+    }
+    return img.encodeJpg(transformed, quality: 50);
   }
 }
