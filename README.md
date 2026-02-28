@@ -117,53 +117,70 @@ The project transforms standard smartphone cameras into intelligent communicatio
 
 # Project Documentation
 
-## Technical Implementation & Google Technologies
-The solution uses a real-time client-server model built on a comprehensive Google tech stack:
+## Technical Architecture
 
-1. Flutter: The UI and Camera Framework. It manages the camera feed and ensures a smooth user interface while heavy AI processing occurs in the background. It was chosen for its cross-platform capabilities (Android).
+- The solution architecture follows a real-time client-server model designed to bridge the gap between high-performance AI processing and mobile accessibility.
 
-2. MediaPipe: Used for real-time feature extraction. It maps 126 specific 3D hand coordinates in each frame. 
+    1. Frontend: A Flutter mobile application serves as the primary user interface. It captures live video frames from the device camera and uses an IOWebSocketChannel to establish a persistent, low-latency connection with the backend.
 
-3. TensorFlow: The gesture recognition engine. It uses a custom-trained deep learning model (sequential architecture with dense and dropout layers) to classify coordinate data into characters or words.
+    2. Backend: Built using the FastAPI framework, it acts as the intelligence hub. Base64-encoded image frames are passed to a Python model wrapper.
 
-4. Google Gemini (In Progress): Acts as the semantic layer to transform technical word streams into fluent natural language, accounting for the unique grammar of ASL.
+- AI Components:
 
-5. Google Cloud & Firebase (Future Scaling): Plans include Firebase Analytics for user retention, Performance Monitoring for latency tracking (<100ms goal), Crashlytics for device stability (2GB RAM devices), and BigQuery for large-scale usage analysis .
+    1. Google MediaPipe Holistic: Performs landmarking to extract 126 specific 3D coordinates representing hand geometry.
 
-## Innovation and Unique Selling Points (USP)
+    2. TensorFlow: A custom-trained neural network with a sequential architecture (dense and dropout layers) that classifies hand positions into alphanumeric characters or words.
 
-1. Hybrid Real-Time Processing: Send image frames to server via WebSockets for recognition to achieve rapid response times.
+    3. Google Gemini (In Progress): Acts as a semantic layer to transform raw word streams into fluent English sentences, accounting for unique ASL grammatical structures.
 
-2. Inclusive Multimodality: Unlike competitors, this app includes a "Blind Mode" with haptic feedback and Text-to-Speech, and a "Speech-to-Text" function for two-way communication.
+    4. Data Storage: Handled through a CSV-based dataset strategy storing labeled landmark coordinates used during training.
 
-3. Community-Driven Data: Uses a model where certified signers can upload signs to keep the library updated with modern slang and regional variations (BIM, BSL, etc.).
+- Accessibility Integration:
 
-4. Contextual Intelligence: Uses Gemini to provide professional-grade English rather than fragmented dictionary labels.
+    1. Text-to-Speech: Provides audible feedback for "Blind Mode".
 
-5. Technical Challenges & Solutions: 
+    2. Speech-to-Text: Enables two-way communication by displaying spoken replies to the signer.
 
-    - Challenge: Transitioning from server-side processing to a hybrid model without causing network lag or UI freezing. High-speed video processing often overwhelmed mobile CPUs.
+## Implementation Details
 
-    - Debugging/Solution: 
-        1. Implemented a "State-Locked" communication pipeline using WebSockets to reduce overhead.
+- The project focuses on transforming a smartphone into an intelligent communication tool using several key implementations:
 
-        2. Introduced "Gatekeeper" logic on the frontend using a boolean flag and a 150ms time-based threshold to throttle frames and prevent congestion.
+    1. Platform Transition: Following user feedback where 100% of respondents prioritized a smartphone app, development shifted from a web version to a mobile application using the Flutter framework.
 
-        3. Data Payload Optimization: Converted raw camera bytes into compressed JPEGs before Base64 encoding to slash bandwidth requirements.
+    2. Real-time Processing: The system uses WebSockets instead of standard HTTP requests to achieve rapid response times necessary for fluid recognition.
 
-    - Impact: Avoided server lag and achieved a stable 30 FPS.
+    3. Multimodal Features: Based on user suggestions, the team implemented Text-to-Speech and a dedicated Blind Mode with haptic feedback and automated voice guides.
 
-## Success Metrics
-1. Speed: Latency < 100 milliseconds from gesture to text output.
+    4. Model Optimization: To ensure high performance, the system uses a coordinate-based approach (MediaPipe) rather than sending heavy raw video frames, which minimizes data usage and latency.
 
-2. Compatibility: 90% device compatibility, maintaining stability on devices with as little as 2GB RAM.
+    5. Community-Driven Data: A custom data pipeline allows certified signers to upload signs and text to continuously improve the library.
 
-3. Accuracy: 95% Model Accuracy and a Word Error Rate (WER) < 10%.
+## Challenges Faced
+The most significant technical challenge was transitioning from a server-side processing model to a hybrid frontend-processing architecture to achieve real-time recognition without network lag or UI freezing.
 
-## Technical Trade-offs
+- The Problem: High-speed video processing can overwhelm local mobile hardware, leading to UI freezes and high battery drain.
 
-1. Mobile vs. Web: Shifted from Web to Mobile-first (using Flutter) based on 100% of user feedback prioritizing portability.
+- The Debugging & Solution Process:
 
-2. Coordinate vs. Video: Chose to send 126 3D coordinates rather than raw video frames to the server to minimize data usage and prevent UI lag.
+    1. State-Locked Pipeline: Transitioned to persistent WebSocket connections to reduce overhead.
 
-3. Feature Prioritization: Removed a planned "user-differentiation" feature (distinguishing between multiple speakers) after users indicated they prioritized translation speed and accuracy over identification.
+    2. Gatekeeper Logic: Introduced a boolean flag and a 150ms time-based threshold to throttle outgoing frames and prevent network congestion.
+
+    3. Payload Optimization: Converted raw camera bytes into compressed JPEGs before Base64 encoding, significantly reducing bandwidth requirements.
+
+    4. The Impact: These changes eliminated the risk of server crashes and resulted in a smooth UI where video remains responsive while AI processes coordinates in the background.
+
+## Future Roadmap
+
+- The project expansion is organized into three distinct phases over a 36-month timeline:
+
+    1. Phase 1: Nuance Differentiation (0-12 months):
+    Focus on capturing facial expressions (raised eyebrows, mouth shapes) using MediaPipe facial mesh.
+    Launch a community-contributed landmark library to train models on regional sign languages like BIM or BSL.
+    Target expansion into specialist clinics and hospitals.
+
+    2. Phase 2: Wearable Transformation (12-24 months): Transition the interface to Augmented Reality (AR) glasses. Optimize Flutter software for specialized wearable hardware to provide hands-free digital overlays of translations.
+
+    3. Phase 3: Global Bridges (24-36 months):
+    Leverage Gemini's inference capabilities for cross-modal translation between different sign languages and spoken languages.
+    Enable users to sign in their native gestures and have it converted instantly into different spoken languages (e.g., signing BIM and outputting spoken Mandarin).
