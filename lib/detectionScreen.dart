@@ -18,8 +18,8 @@ import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform;
 
 
 
-static const String _serverIp = 'YOUR_SERVER_IP_HERE';
-static const String _wsUrl = 'ws://$_serverIp:8000/ws/predict';
+const String _serverIp = 'YOUR_SERVER_IP_HERE';
+const String _wsUrl = 'ws://$_serverIp:8000/ws/predict';
 
 
 
