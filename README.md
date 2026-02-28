@@ -72,7 +72,7 @@ git checkout main
 - Update the IPv4 Address in the file lib/detectionScreen.dart
 - Look for the line
 ```
-static const String _serverIp = 'YOUR_SERVER_IP_HERE';
+const String _serverIp = 'YOUR_SERVER_IP_HERE';
 ```
 - Change ```YOUR_SERVER_UP_HERE``` to the IPv4 Address you obtained from the previous steps.
 
