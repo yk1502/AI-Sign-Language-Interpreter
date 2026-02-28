@@ -11,6 +11,35 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform;
 
+
+
+
+
+
+
+
+static const String _serverIp = 'YOUR_SERVER_IP_HERE';
+static const String _wsUrl = 'ws://$_serverIp:8000/ws/predict';
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 class DetectionScreen extends StatefulWidget {
   final bool isBlindMode; 
   final List<CameraDescription> availableCameras; 
@@ -139,13 +168,11 @@ class _DetectionScreenState extends State<DetectionScreen> {
     }
   }
 
-
-
   void _initSpeech() async => await _speech.initialize();
 
   void _initWebSocket() {
     try {
-      _channel = IOWebSocketChannel.connect('ws://192.168.68.110:8000/ws/predict');
+      _channel = IOWebSocketChannel.connect(_wsUrl);
       _channel!.stream.listen((message) {
         final data = jsonDecode(message);
         if (mounted) {
