@@ -61,12 +61,14 @@ python server.py
 
 The following instructions will run the Flutter App in Android.
 
-### 1. Navigate to the main branch:
+### 1. Open a new terminal/command prompt
+
+### 2. Navigate to the main branch:
 ```
 git checkout main
 ```
 
-### 2. Update IP Address
+### 3. Update IP Address
 - Update the IPv4 Address in the file lib/detectionScreen.dart
 - Look for the line
 ```
@@ -76,10 +78,10 @@ static const String _serverIp = 'YOUR_SERVER_IP_HERE';
 
 - Save the changes.
 
-### 2. Connect your Android device via USB (with Developer Options and USB Debugging enabled)
+### 4. Connect your Android device via USB (with Developer Options and USB Debugging enabled)
 
 
-### 3. Fetch Flutter dependencies and run the app:
+### 5. Fetch Flutter dependencies and run the app:
 ```
 flutter pub get
 flutter run
